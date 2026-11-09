@@ -538,21 +538,25 @@ A pergunta principal é: *o engajamento nas redes sociais pode indicar o sucesso
 4. Comparar a bilheteria entre faixas de engajamento (baixo, médio, alto) com o teste de Kruskal-Wallis.
 5. Checar se o **orçamento** explica a relação: filmes caros têm mais curtidas e mais bilheteria, então calculamos a correlação parcial controlando o orçamento.
 
+# ==========================================
+# 8. VISUALIZAÇÕES
+# ==========================================
+
+st.markdown("""
 ## 8. Visualizações
 
 ### Gráfico 1: Dispersão (Curtidas vs. Bilheteria)
 
 **Como ler:** cada ponto é um filme. Os dois eixos estão em escala logarítmica (log10), porque poucos filmes têm valores enormes e comprimiriam todo o resto. A reta vermelha é a tendência ajustada nos valores em log.
-"""
+""")
 
 def grafico_dispersao(df):
-    """Curtidas da página do filme x bilheteria, em log10."""
     d = df.dropna(subset=["movie_facebook_likes", "gross_imdb"]).copy()
     d = d[(d["movie_facebook_likes"] > 0) & (d["gross_imdb"] > 0)]
     d["log_curtidas"] = np.log10(d["movie_facebook_likes"])
     d["log_bilheteria"] = np.log10(d["gross_imdb"])
 
-    plt.figure(figsize=(9, 5))
+    fig = plt.figure(figsize=(9, 5))
     sns.regplot(data=d, x="log_curtidas", y="log_bilheteria",
                 scatter_kws={"alpha": 0.55, "color": "#1f77b4"},
                 line_kws={"color": "#d62728", "linewidth": 2})
@@ -560,21 +564,23 @@ def grafico_dispersao(df):
     plt.xlabel("Curtidas no Facebook (log10)", fontsize=11)
     plt.ylabel("Bilheteria no IMDb em USD (log10)", fontsize=11)
     plt.tight_layout()
-    plt.show()
-
+    st.pyplot(fig)
 
 grafico_dispersao(df_final)
+
+# ATENÇÃO: Se a sua função "descrever_relacao" lá no início do código ainda estiver 
+# usando "print()", mude para "st.write()" dentro dela para aparecer na tela!
 descrever_relacao(df_final, "movie_facebook_likes", "gross_imdb", "Curtidas do filme x bilheteria")
 
-"""**Leitura:** a nuvem de pontos sobe da esquerda para a direita, então filmes com mais curtidas tendem a ter mais bilheteria. Mas os pontos ficam espalhados em volta da reta: há filmes com poucas curtidas e bilheteria alta, e o contrário. Na análise exploratória, essa correlação caiu de 0,60 (base IMDb) para 0,36 (base final). Ou seja, as curtidas dão uma pista da bilheteria, mas não a determinam.
+st.markdown("""
+**Leitura:** a nuvem de pontos sobe da esquerda para a direita, então filmes com mais curtidas tendem a ter mais bilheteria. Mas os pontos ficam espalhados em volta da reta: há filmes com poucas curtidas e bilheteria alta, e o contrário. Na análise exploratória, essa correlação caiu de 0,60 (base IMDb) para 0,36 (base final). Ou seja, as curtidas dão uma pista da bilheteria, mas não a determinam.
 
 ### Gráfico 2: Sentimento no trailer vs. Nota e Bilheteria
 
 **Como ler:** o eixo x é a taxa de favorabilidade dos comentários do trailer no YouTube (quanto maior, mais positivos os comentários). À esquerda, comparamos com a nota do IMDb; à direita, com a bilheteria (em log10).
-"""
+""")
 
 def grafico_sentimento(df):
-    """Favorabilidade dos comentários do trailer x nota IMDb e x bilheteria (log10)."""
     d = df.dropna(subset=["favorability", "imdb_score", "gross_imdb"]).copy()
     d = d[d["gross_imdb"] > 0]
     d["log_bilheteria"] = np.log10(d["gross_imdb"])
@@ -596,29 +602,29 @@ def grafico_sentimento(df):
     axes[1].set_ylabel("Bilheteria em USD (log10)")
 
     plt.tight_layout()
-    plt.show()
+    st.pyplot(fig)
 
 
 grafico_sentimento(df_final)
 descrever_relacao(df_final, "favorability", "imdb_score", "Favorabilidade x nota IMDb")
 descrever_relacao(df_final, "favorability", "gross_imdb", "Favorabilidade x bilheteria")
 
-"""**Leitura:** os pontos formam uma nuvem larga, sem uma direção clara. Na análise exploratória, a favorabilidade teve correlação fraca com todas as variáveis (entre 0,05 e 0,27), e a maior foi com a nota do IMDb. Então o sentimento do trailer diz um pouco sobre a *qualidade percebida* do filme, e quase nada sobre quanto ele arrecada.
+st.markdown("""
+**Leitura:** os pontos formam uma nuvem larga, sem uma direção clara. Na análise exploratória, a favorabilidade teve correlação fraca com todas as variáveis (entre 0,05 e 0,27), e a maior foi com a nota do IMDb. Então o sentimento do trailer diz um pouco sobre a *qualidade percebida* do filme, e quase nada sobre quanto ele arrecada.
 
 ### Gráfico 3: Boxplot por faixas de engajamento
 
 **Como ler:** dividimos os filmes em três grupos de mesmo tamanho pelas curtidas da página (baixo, médio e alto engajamento). Cada caixa mostra a distribuição da bilheteria do grupo (escala log); a linha dentro da caixa é a mediana e o ponto vermelho é a média.
-"""
+""")
 
 FAIXAS = ["Baixo Engajamento", "Médio Engajamento", "Alto Engajamento"]
-
 
 def grafico_faixas(df):
     """Boxplot da bilheteria por faixa de curtidas (tercis). Devolve a base com a faixa."""
     d = df.dropna(subset=["movie_facebook_likes", "gross_imdb"]).copy()
     d["faixa_engajamento"] = pd.qcut(d["movie_facebook_likes"], q=3, labels=FAIXAS)
 
-    plt.figure(figsize=(9, 5))
+    fig = plt.figure(figsize=(9, 5))
     sns.boxplot(data=d, x="faixa_engajamento", y="gross_imdb", hue="faixa_engajamento",
                 palette="Blues", legend=False, showmeans=True,
                 meanprops={"marker": "o", "markerfacecolor": "red", "markeredgecolor": "black"})
@@ -627,20 +633,24 @@ def grafico_faixas(df):
     plt.xlabel("Volume de Curtidas na Rede Social")
     plt.ylabel("Bilheteria em USD (Escala Log)")
     plt.tight_layout()
-    plt.show()
+    
+    st.pyplot(fig)
     return d
 
-
 df_bins = grafico_faixas(df_final)
-
 medianas = df_bins.groupby("faixa_engajamento", observed=True)["gross_imdb"].median()
-print("Mediana da bilheteria por faixa (USD):")
-print(medianas.round(0))
-cresce = medianas.is_monotonic_increasing
-print("\nA mediana da bilheteria", "aumenta" if cresce else "não aumenta de forma contínua",
-      "da faixa de baixo para a de alto engajamento.")
 
-"""**Leitura:** compare as três medianas impressas acima. Se elas crescem de "Baixo" para "Alto", filmes mais engajados tendem a faturar mais. As caixas também se sobrepõem bastante: existem filmes de baixo engajamento com bilheteria maior que a de filmes de alto engajamento. O teste de Kruskal-Wallis na seção 9 diz se a diferença entre as faixas é grande demais para ser acaso.
+st.write("**Mediana da bilheteria por faixa (USD):**")
+st.dataframe(medianas.round(0))
+
+cresce = medianas.is_monotonic_increasing
+resultado_texto = "aumenta" if cresce else "não aumenta de forma contínua"
+
+st.write(f"A mediana da bilheteria **{resultado_texto}** da faixa de baixo para a de alto engajamento.")
+
+st.markdown("""
+**Leitura:** compare as três medianas impressas acima. Se elas crescem de "Baixo" para "Alto", filmes mais engajados tendem a faturar mais. As caixas também se sobrepõem bastante: existem filmes de baixo engajamento com bilheteria maior que a de filmes de alto engajamento. O teste de Kruskal-Wallis na seção 9 diz se a diferença entre as faixas é grande demais para ser acaso.
+""")
 
 ## 9. Teste das hipóteses
 
