@@ -36,6 +36,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import kagglehub
 from scipy import stats
+import streamlit as st
+import os
+
+# Configuração da autenticação do Kaggle
+os.environ["KAGGLE_API_TOKEN"] = st.secrets["KAGGLE_API_TOKEN"]
 
 sns.set_theme(style="whitegrid")
 
