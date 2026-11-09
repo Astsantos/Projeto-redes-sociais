@@ -225,7 +225,7 @@ df_limpo[["movie_title", "title_year", "country", "movie_facebook_likes", "gross
 """## 4. Base do YouTube (Movies YouTube Trailers & Sentiment)"""
 
 # Baixa a base do YouTube direto do Kaggle
-path_yt = baixar_dataset("paultimothymooney/movies-youtube-trailers-sentiment")
+path_yt = baixar_dataset("dineshvasired/movies-youtube-trailers-and-sentimentdinesh-dinesh")
 
 arquivo_yt = [f for f in os.listdir(path_yt) if f.endswith(".csv")][0]
 df_yt = pd.read_csv(os.path.join(path_yt, arquivo_yt))
