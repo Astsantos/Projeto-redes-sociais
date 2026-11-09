@@ -10,37 +10,29 @@ from scipy import stats
 import streamlit as st
 
 # --- Configurações da Página Streamlit ---
-st.set_page_config(page_title="Análise de Filmes: Engajamento vs Sucesso", layout="wide")
+st.set_page_config(page_title="Análise: Engajamento vs Sucesso", layout="wide", initial_sidebar_state="expanded")
+
+# Tema visual mais limpo e elegante para os gráficos
+sns.set_theme(style="ticks", palette="muted")
 
 # Configuração da autenticação do Kaggle
 try:
     os.environ["KAGGLE_API_TOKEN"] = st.secrets["KAGGLE_API_TOKEN"]
 except Exception:
-    st.sidebar.warning("Token do Kaggle não encontrado em st.secrets. O download pode falhar se não houver autenticação prévia.")
-
-sns.set_theme(style="whitegrid")
+    st.sidebar.warning("Token do Kaggle não configurado. O download pode falhar sem autenticação prévia.")
 
 ALFA = 0.05        
 MIN_MENCOES = 3    
 
-# --- Funções de Apoio e Processamento (com Cache para otimizar o Streamlit) ---
+# --- Funções de Apoio e Processamento ---
 
 @st.cache_data
 def baixar_dataset(handle):
     try:
         return kagglehub.dataset_download(handle)
     except Exception as erro:
-        st.error(f"Não foi possível baixar '{handle}': {erro}")
+        st.error(f"Erro ao baixar '{handle}': {erro}")
         st.stop()
-
-def descrever_base(df, nome):
-    st.write(f"**{nome}:** {df.shape[0]} linhas x {df.shape[1]} colunas")
-    resumo = pd.DataFrame({
-        "tipo": df.dtypes.astype(str),
-        "preenchidos": df.notna().sum(),
-        "ausentes (%)": (df.isna().mean() * 100).round(1),
-    })
-    return resumo
 
 def classificar_forca(rho):
     a = abs(rho)
@@ -55,16 +47,6 @@ def correlacao_spearman(df, x, y):
         return {"n": len(d), "rho": np.nan, "p": np.nan}
     rho, p = stats.spearmanr(d[x], d[y])
     return {"n": len(d), "rho": rho, "p": p}
-
-def descrever_relacao(df, x, y, rotulo):
-    r = correlacao_spearman(df, x, y)
-    if np.isnan(r["rho"]):
-        st.write(f"**{rotulo}:** poucos dados (n = {r['n']}).")
-        return r
-    sentido = "positiva" if r["rho"] > 0 else "negativa"
-    signif = "estatisticamente significativa" if r["p"] < ALFA else "não significativa"
-    st.write(f"**{rotulo}:** Spearman = {r['rho']:.2f} (n = {r['n']}, p = {r['p']:.3g}) -> relação {classificar_forca(r['rho'])} {sentido}, {signif}.")
-    return r
 
 @st.cache_data
 def limpar_dados_imdb(df):
@@ -148,168 +130,183 @@ def contar_mencoes(df_filmes, df_resenhas):
     return pd.DataFrame(linhas, columns=["movie_title", "title_year", "rev_mencoes", "rev_pct_positivo"])
 
 # =====================================================================
-# INÍCIO DO APLICATIVO
+# INÍCIO DA INTERFACE
 # =====================================================================
 
 st.title("🎬 O engajamento nas redes sociais indica o sucesso de um filme?")
-st.markdown("Esta aplicação reproduz os passos de integração e análise de três bases de dados de cinema.")
+st.markdown("Uma análise cruzando dados de Bilheteria (IMDb), Trailers (YouTube) e Resenhas de Usuários.")
+st.markdown("---")
 
-# --- 1. IMDB 5000 ---
-st.header("1. Base Principal: IMDB 5000")
-with st.spinner("Baixando e carregando base IMDB..."):
-    path = baixar_dataset("carolzhangdc/imdb-5000-movie-dataset")
-    df_imdb_raw = pd.read_csv(os.path.join(path, "movie_metadata.csv"))
+# Carregamento invisível dos dados para o usuário não ficar esperando em cada aba
+with st.spinner("Processando bases de dados..."):
+    path_imdb = baixar_dataset("carolzhangdc/imdb-5000-movie-dataset")
+    df_imdb_raw = pd.read_csv(os.path.join(path_imdb, "movie_metadata.csv"))
+    df_limpo = limpar_dados_imdb(df_imdb_raw)
 
-df_limpo = limpar_dados_imdb(df_imdb_raw)
-
-with st.expander("Exploração Inicial (Após Limpeza)"):
-    st.write(f"Antes: {df_imdb_raw.shape} | Depois: {df_limpo.shape}")
-    cols = ["movie_facebook_likes", "cast_total_facebook_likes", "gross", "imdb_score"]
-    
-    # CORREÇÃO: Gráfico Histograma IMDB
-    fig1, axes1 = plt.subplots(2, 2, figsize=(10, 6))
-    df_limpo[cols].hist(bins=30, ax=axes1)
-    plt.tight_layout()
-    st.pyplot(fig1)
-
-    # CORREÇÃO: Gráfico de Correlação IMDB
-    fig2, ax2 = plt.subplots(figsize=(7, 5))
-    sns.heatmap(df_limpo[cols].corr(method="spearman"), annot=True, cmap="coolwarm", fmt=".2f", ax=ax2)
-    ax2.set_title("Correlação entre engajamento e sucesso")
-    st.pyplot(fig2)
-
-# --- 2. YouTube ---
-st.header("2. Base de Trailers do YouTube e Integração")
-with st.spinner("Carregando e integrando dados do YouTube..."):
     path_yt = baixar_dataset("dineshvasired/movies-youtube-trailers-and-sentimentdinesh-dinesh")
     arquivo_yt = [f for f in os.listdir(path_yt) if f.endswith(".csv")][0]
     df_yt_raw = pd.read_csv(os.path.join(path_yt, arquivo_yt))
-    
     df_yt = limpar_youtube(df_yt_raw)
+    
     df_limpo["chave"] = criar_chave(df_limpo["movie_title"])
     df_yt["chave"] = criar_chave(df_yt["name"])
-    
     df_final = juntar_imdb_youtube(df_limpo, df_yt).drop_duplicates(subset=["chave", "year"]).copy()
-
-with st.expander("Detalhes da Integração IMDb + YouTube"):
-    cols_hist = ["movie_facebook_likes", "gross_imdb", "imdb_score", "favorability"]
     
-    # CORREÇÃO: Histograma YouTube
-    fig3, axes3 = plt.subplots(2, 2, figsize=(10, 6))
-    df_final[cols_hist].hist(bins=30, ax=axes3)
-    plt.tight_layout()
-    st.pyplot(fig3)
-
-    cols_corr = ["movie_facebook_likes", "cast_total_facebook_likes", "director_facebook_likes",
-                 "favorability", "gross_imdb", "imdb_score", "votes"]
-                 
-    # CORREÇÃO: Correlação YouTube
-    fig4, ax4 = plt.subplots(figsize=(9, 6))
-    sns.heatmap(df_final[cols_corr].corr(method="spearman"), annot=True, cmap="coolwarm", fmt=".2f", ax=ax4)
-    ax4.set_title("Correlação (base final IMDb + YouTube)")
-    st.pyplot(fig4)
-
-# --- 3. 50K Reviews ---
-st.header("3. Análise de Sentimento nas Resenhas (50K Reviews)")
-with st.spinner("Carregando resenhas e contando menções (pode levar 1 minuto)..."):
     path_rev = baixar_dataset("lakshmi25npathi/imdb-dataset-of-50k-movie-reviews")
     arquivo_rev = [f for f in os.listdir(path_rev) if f.endswith(".csv")][0]
     df_rev_raw = pd.read_csv(os.path.join(path_rev, arquivo_rev))
-    
     df_rev = limpar_reviews(df_rev_raw)
+    
     df_mencoes = contar_mencoes(df_final, df_rev)
     df_final_rev = df_final.merge(df_mencoes, on=["movie_title", "title_year"], how="left")
     df_final_rev["rev_mencoes"] = df_final_rev["rev_mencoes"].fillna(0).astype(int)
     df_final_rev.loc[df_final_rev["rev_mencoes"] < MIN_MENCOES, "rev_pct_positivo"] = np.nan
 
-with st.expander("Resultados do cruzamento de Resenhas"):
-    df_rev_ok = df_final_rev.dropna(subset=["rev_pct_positivo"])
-    if len(df_rev_ok) >= 10:
-        cols_rev = ["rev_mencoes", "rev_pct_positivo", "imdb_score", "favorability", "movie_facebook_likes", "gross_imdb"]
-        
-        # CORREÇÃO: Gráfico duplo de Resenhas
-        fig5, axes = plt.subplots(1, 2, figsize=(15, 5))
-        sns.heatmap(df_rev_ok[cols_rev].corr(method="spearman"), annot=True, cmap="coolwarm", fmt=".2f", ax=axes[0])
-        axes[0].set_title("Correlação (filmes citados nas resenhas)", fontweight="bold")
-        sns.regplot(data=df_rev_ok, x="rev_pct_positivo", y="imdb_score",
-                    scatter_kws={"alpha": 0.55, "color": "#9467bd"},
-                    line_kws={"color": "#111111", "linewidth": 2}, ax=axes[1])
-        axes[1].set_title("% de resenhas positivas vs. Nota IMDb", fontweight="bold")
-        axes[1].set_xlabel("% de resenhas positivas")
-        axes[1].set_ylabel("Nota no IMDb (0 - 10)")
-        plt.tight_layout()
-        st.pyplot(fig5)
+# --- Explorando as Bases (Usando Expander para limpar a tela) ---
+with st.expander("🔍 Explorar as Bases de Dados (Visão Geral)"):
+    tab1, tab2, tab3 = st.tabs(["1. IMDb 5000", "2. YouTube", "3. Resenhas (50K)"])
+    
+    with tab1:
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            st.markdown("**Base Limpa:**")
+            st.write(f"De {df_imdb_raw.shape[0]} para {df_limpo.shape[0]} filmes únicos.")
+            st.markdown("Variáveis mais usadas: `movie_facebook_likes`, `gross`, `imdb_score`.")
+        with c2:
+            cols = ["movie_facebook_likes", "gross", "imdb_score"]
+            fig1, ax1 = plt.subplots(figsize=(8, 4))
+            sns.heatmap(df_limpo[cols].corr(method="spearman"), annot=True, cmap="Blues", fmt=".2f", ax=ax1)
+            ax1.set_title("Correlação IMDb Original")
+            st.pyplot(fig1)
 
-# --- 4. Hipóteses e Visualizações ---
-st.header("4. Visualizações das Hipóteses")
+    with tab2:
+        st.write(f"**Integração:** {len(df_final)} filmes casaram entre IMDb e YouTube (via Título e Ano).")
+        st.dataframe(df_final[["movie_title", "title_year", "gross_imdb", "favorability"]].head())
 
-col1, col2 = st.columns(2)
-with col1:
+    with tab3:
+        df_rev_ok = df_final_rev.dropna(subset=["rev_pct_positivo"])
+        st.write(f"**Análise de Sentimento:** {len(df_rev_ok)} filmes foram citados em pelo menos {MIN_MENCOES} resenhas.")
+        fig3, ax3 = plt.subplots(figsize=(6, 3))
+        sns.regplot(data=df_rev_ok, x="rev_pct_positivo", y="imdb_score", 
+                    scatter_kws={"alpha": 0.5, "color": "#9467bd"}, line_kws={"color": "#111", "linewidth": 2}, ax=ax3)
+        ax3.set_title("% Resenhas Positivas vs Nota IMDb")
+        sns.despine()
+        st.pyplot(fig3)
+
+# --- VISUALIZAÇÕES PRINCIPAIS (TEXTO NA ESQUERDA, GRÁFICO NA DIREITA) ---
+st.header("📊 Análise Visual das Hipóteses")
+st.markdown("Como as diferentes métricas de engajamento se comportam em relação ao faturamento e à nota dos filmes?")
+st.write("")
+
+# 1. Curtidas vs Bilheteria
+col_txt1, col_fig1 = st.columns([1, 2])
+with col_txt1:
     st.subheader("Curtidas vs. Bilheteria")
+    st.markdown("""
+    **Como ler:** 
+    Cada ponto representa um filme. Os eixos estão em escala logarítmica para acomodar tanto os filmes independentes quanto os grandes blockbusters.
+    
+    **Leitura dos dados:**
+    A nuvem de pontos sobe da esquerda para a direita. Filmes com **mais curtidas tendem a ter maior bilheteria**. 
+    
+    Contudo, a correlação caiu para `0.36` na base final, indicando que curtidas são uma pista importante, mas não garantem sozinhas o sucesso financeiro.
+    """)
+with col_fig1:
     d_disp = df_final.dropna(subset=["movie_facebook_likes", "gross_imdb"]).copy()
     d_disp = d_disp[(d_disp["movie_facebook_likes"] > 0) & (d_disp["gross_imdb"] > 0)]
     d_disp["log_curtidas"] = np.log10(d_disp["movie_facebook_likes"])
     d_disp["log_bilheteria"] = np.log10(d_disp["gross_imdb"])
     
-    # CORREÇÃO: Gráfico Dispersão
-    fig6, ax6 = plt.subplots(figsize=(9, 5))
-    sns.regplot(data=d_disp, x="log_curtidas", y="log_bilheteria", ax=ax6,
-                scatter_kws={"alpha": 0.55, "color": "#1f77b4"},
-                line_kws={"color": "#d62728", "linewidth": 2})
-    ax6.set_title("Curtidas da Página vs. Bilheteria Bruta (log10)", fontweight="bold")
-    ax6.set_xlabel("Curtidas no Facebook (log10)")
-    ax6.set_ylabel("Bilheteria no IMDb em USD (log10)")
+    fig4, ax4 = plt.subplots(figsize=(8, 4.5))
+    sns.regplot(data=d_disp, x="log_curtidas", y="log_bilheteria", ax=ax4,
+                scatter_kws={"alpha": 0.5, "color": "#3498db"},
+                line_kws={"color": "#e74c3c", "linewidth": 2})
+    ax4.set_title("Curtidas da Página do Filme vs. Bilheteria (Log10)", fontweight="bold", pad=15)
+    ax4.set_xlabel("Curtidas no Facebook (log10)")
+    ax4.set_ylabel("Bilheteria (log10)")
+    sns.despine()
+    st.pyplot(fig4)
+
+st.markdown("---")
+
+# 2. Distribuição por Faixas
+col_txt2, col_fig2 = st.columns([1, 2])
+with col_txt2:
+    st.subheader("Bilheteria por Nível de Engajamento")
+    st.markdown("""
+    **Como ler:** 
+    Dividimos os filmes em três grupos de tamanho igual baseados no volume de curtidas no Facebook. A linha central da caixa é a mediana e a bolinha vermelha é a média.
+    
+    **Leitura dos dados:**
+    Observe como a mediana (e as caixas como um todo) "sobem" degrau por degrau do baixo para o alto engajamento. 
+    
+    Existe sobreposição (filmes com pouco engajamento que estouraram de bilheteria), mas a tendência geral é muito clara a favor dos mais engajados.
+    """)
+with col_fig2:
+    FAIXAS = ["Baixo", "Médio", "Alto"]
+    d_faixa = df_final.dropna(subset=["movie_facebook_likes", "gross_imdb"]).copy()
+    d_faixa["Engajamento"] = pd.qcut(d_faixa["movie_facebook_likes"], q=3, labels=FAIXAS)
+    
+    fig5, ax5 = plt.subplots(figsize=(8, 4.5))
+    sns.boxplot(data=d_faixa, x="Engajamento", y="gross_imdb", hue="Engajamento",
+                palette="Blues", legend=False, showmeans=True, ax=ax5,
+                meanprops={"marker": "o", "markerfacecolor": "#e74c3c", "markeredgecolor": "white", "markersize": 8})
+    ax5.set_yscale("log")
+    ax5.set_title("Distribuição da Bilheteria por Faixa de Engajamento", fontweight="bold", pad=15)
+    ax5.set_xlabel("Nível de Engajamento")
+    ax5.set_ylabel("Bilheteria em USD (Escala Log)")
+    sns.despine()
+    st.pyplot(fig5)
+
+st.markdown("---")
+
+# 3. Sentimento YouTube
+col_txt3, col_fig3 = st.columns([1, 2])
+with col_txt3:
+    st.subheader("Comentários do Trailer (YouTube)")
+    st.markdown("""
+    **Como ler:** 
+    O eixo horizontal representa a Taxa de Favorabilidade (percentual de comentários positivos no YouTube).
+    
+    **Leitura dos dados:**
+    Diferente das curtidas, o sentimento dos comentários formam uma nuvem muito larga e quase sem direção. 
+    
+    A favorabilidade tem uma correlação ínfima com a bilheteria. Ela reflete um pouco melhor a **Nota do IMDb** (qualidade percebida pelo público), mas definitivamente não serve como bússola comercial.
+    """)
+with col_fig3:
+    d_sent = df_final.dropna(subset=["favorability", "imdb_score", "gross_imdb"]).copy()
+    d_sent = d_sent[d_sent["gross_imdb"] > 0]
+    d_sent["log_bilheteria"] = np.log10(d_sent["gross_imdb"])
+
+    fig6, (ax6a, ax6b) = plt.subplots(1, 2, figsize=(10, 4.5))
+    
+    sns.regplot(data=d_sent, x="favorability", y="imdb_score", ax=ax6a,
+                scatter_kws={"alpha": 0.4, "color": "#2ecc71"},
+                line_kws={"color": "#2c3e50", "linewidth": 2})
+    ax6a.set_title("Favorabilidade vs. Nota IMDb", fontweight="bold")
+    ax6a.set_xlabel("Comentários Positivos (%)")
+    ax6a.set_ylabel("Nota no IMDb (0 - 10)")
+    
+    sns.regplot(data=d_sent, x="favorability", y="log_bilheteria", ax=ax6b,
+                scatter_kws={"alpha": 0.4, "color": "#f39c12"},
+                line_kws={"color": "#2c3e50", "linewidth": 2})
+    ax6b.set_title("Favorabilidade vs. Bilheteria", fontweight="bold")
+    ax6b.set_xlabel("Comentários Positivos (%)")
+    ax6b.set_ylabel("Bilheteria (log10)")
+    
+    sns.despine()
+    plt.tight_layout()
     st.pyplot(fig6)
 
-with col2:
-    st.subheader("Distribuição por Faixas")
-    FAIXAS = ["Baixo Engajamento", "Médio Engajamento", "Alto Engajamento"]
-    d_faixa = df_final.dropna(subset=["movie_facebook_likes", "gross_imdb"]).copy()
-    d_faixa["faixa_engajamento"] = pd.qcut(d_faixa["movie_facebook_likes"], q=3, labels=FAIXAS)
-    
-    # CORREÇÃO: Gráfico de Caixas (Boxplot)
-    fig7, ax7 = plt.subplots(figsize=(9, 5))
-    sns.boxplot(data=d_faixa, x="faixa_engajamento", y="gross_imdb", hue="faixa_engajamento",
-                palette="Blues", legend=False, showmeans=True, ax=ax7,
-                meanprops={"marker": "o", "markerfacecolor": "red", "markeredgecolor": "black"})
-    ax7.set_yscale("log")
-    ax7.set_title("Distribuição da Bilheteria por Faixa de Engajamento", fontweight="bold")
-    ax7.set_xlabel("Volume de Curtidas na Rede Social")
-    ax7.set_ylabel("Bilheteria em USD (Escala Log)")
-    st.pyplot(fig7)
-
-st.subheader("Sentimento no Trailer (YouTube)")
-d_sent = df_final.dropna(subset=["favorability", "imdb_score", "gross_imdb"]).copy()
-d_sent = d_sent[d_sent["gross_imdb"] > 0]
-d_sent["log_bilheteria"] = np.log10(d_sent["gross_imdb"])
-
-# CORREÇÃO: Gráficos de Sentimento Lado a Lado
-fig8, axes8 = plt.subplots(1, 2, figsize=(14, 5))
-sns.regplot(data=d_sent, x="favorability", y="imdb_score", ax=axes8[0],
-            scatter_kws={"alpha": 0.45, "color": "#2ca02c"},
-            line_kws={"color": "#111111", "linewidth": 2})
-axes8[0].set_title("Sentimento nos Comentários vs. Nota IMDb", fontweight="bold")
-axes8[0].set_xlabel("Taxa de Favorabilidade (YouTube)")
-axes8[0].set_ylabel("Nota no IMDb (0 - 10)")
-
-sns.regplot(data=d_sent, x="favorability", y="log_bilheteria", ax=axes8[1],
-            scatter_kws={"alpha": 0.45, "color": "#ff7f0e"},
-            line_kws={"color": "#111111", "linewidth": 2})
-axes8[1].set_title("Sentimento vs. Bilheteria", fontweight="bold")
-axes8[1].set_xlabel("Taxa de Favorabilidade (YouTube)")
-axes8[1].set_ylabel("Bilheteria em USD (log10)")
-st.pyplot(fig8)
-
-# --- 5. Teste de Hipóteses Matemático ---
-st.header("5. Teste das Hipóteses")
+# --- RESULTADOS DOS TESTES E CONCLUSÃO ---
+st.header("🎯 Conclusão e Teste de Hipóteses")
 
 HIPOTESES = [
-    ("H1", "Curtidas do filme -> bilheteria", "movie_facebook_likes", "gross_imdb", "rede social"),
-    ("H2", "Curtidas do elenco -> bilheteria", "cast_total_facebook_likes", "gross_imdb", "rede social"),
-    ("H3", "Curtidas do diretor -> bilheteria", "director_facebook_likes", "gross_imdb", "rede social"),
-    ("H4", "Favorabilidade do trailer -> nota IMDb", "favorability", "imdb_score", "rede social"),
-    ("H5", "Favorabilidade do trailer -> bilheteria", "favorability", "gross_imdb", "rede social"),
-    ("H6", "% de resenhas positivas -> nota IMDb", "rev_pct_positivo", "imdb_score", "validação"),
+    ("H1", "Curtidas do filme -> Bilheteria", "movie_facebook_likes", "gross_imdb"),
+    ("H2", "Curtidas do elenco -> Bilheteria", "cast_total_facebook_likes", "gross_imdb"),
+    ("H3", "Curtidas do diretor -> Bilheteria", "director_facebook_likes", "gross_imdb"),
+    ("H4", "Favorabilidade (YouTube) -> Nota IMDb", "favorability", "imdb_score"),
+    ("H5", "Favorabilidade (YouTube) -> Bilheteria", "favorability", "gross_imdb"),
 ]
 
 def veredito(rho, p):
@@ -320,29 +317,44 @@ def veredito(rho, p):
     return f"Apoiada ({classificar_forca(rho)})"
 
 linhas = []
-for cod, texto, x, y, tipo in HIPOTESES:
+for cod, texto, x, y in HIPOTESES:
     if x in df_final_rev.columns and y in df_final_rev.columns:
         r = correlacao_spearman(df_final_rev, x, y)
         linhas.append({
-            "hipotese": cod, "descricao": texto, "tipo": tipo,
-            "n": r["n"], "rho": r["rho"], "p_valor": r["p"],
-            "forca": "-" if np.isnan(r["rho"]) else classificar_forca(r["rho"]),
-            "veredito": veredito(r["rho"], r["p"])
+            "Hipótese": cod, "Descrição": texto,
+            "Força (Rho)": r["rho"], "Veredito": veredito(r["rho"], r["p"])
         })
 df_res = pd.DataFrame(linhas)
-st.dataframe(df_res[["hipotese", "descricao", "n", "rho", "p_valor", "forca", "veredito"]])
 
-# CORREÇÃO: Gráfico de Resultados
-d_res = df_res.dropna(subset=["rho"]).copy()
-d_res["significância"] = np.where(d_res["p_valor"] < ALFA, "p < 0,05", "p ≥ 0,05")
-fig9, ax9 = plt.subplots(figsize=(9, 0.7 * len(d_res) + 2))
-sns.barplot(data=d_res, y="hipotese", x="rho", hue="significância", dodge=False, ax=ax9,
-            palette={"p < 0,05": "#1f77b4", "p ≥ 0,05": "#bbbbbb"})
-ax9.axvline(0, color="black", linewidth=1)
-for i, v in enumerate(d_res["rho"]):
-    ax9.text(v + (0.01 if v >= 0 else -0.01), i, f"{v:.2f}",
-             va="center", ha="left" if v >= 0 else "right")
-ax9.set_title("Correlação de Spearman por hipótese", fontweight="bold")
-ax9.set_xlabel("Correlação (rho)")
-ax9.set_ylabel("")
-st.pyplot(fig9)
+col_txt4, col_fig4 = st.columns([1.2, 1.5])
+
+with col_txt4:
+    st.markdown("""
+    Rodamos correlações matemáticas severas (Spearman) para validar cientificamente os gráficos acima.
+    """)
+    st.dataframe(df_res[["Descrição", "Veredito"]], hide_index=True)
+    
+    st.success("""
+    **Veredito Final:** O engajamento nas redes sociais **é um indicador parcial do sucesso**. 
+    
+    Curtidas da página do filme funcionam bem para prever bilheteria. Já o sentimento de comentários de trailer ajuda muito pouco (serve mais como termômetro de nota do que de dinheiro).
+    
+    *(Lembrete: Filmes maiores possuem orçamentos enormes de marketing que impulsionam simultaneamente os likes e a bilheteria).*
+    """)
+
+with col_fig4:
+    d_res = df_res.dropna(subset=["Força (Rho)"]).copy()
+    
+    fig7, ax7 = plt.subplots(figsize=(8, 4))
+    sns.barplot(data=d_res, y="Hipótese", x="Força (Rho)", color="#3498db", ax=ax7)
+    
+    ax7.axvline(0, color="black", linewidth=1)
+    for i, v in enumerate(d_res["Força (Rho)"]):
+        ax7.text(v + 0.01, i, f"{v:.2f}", va="center", fontweight="bold", color="#333")
+        
+    ax7.set_title("Força da Correlação por Hipótese (Spearman)", fontweight="bold", pad=15)
+    ax7.set_xlabel("Força (rho)")
+    ax7.set_ylabel("")
+    sns.despine(left=True, bottom=True)
+    ax7.xaxis.set_visible(False) # Remove o eixo X que fica redundante com os números na barra
+    st.pyplot(fig7)
