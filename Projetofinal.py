@@ -12,7 +12,6 @@ import streamlit as st
 # --- Configurações da Página Streamlit ---
 st.set_page_config(
     page_title="Análise: Engajamento vs Sucesso de Filmes",
-    page_icon="🎬",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -64,16 +63,6 @@ plt.rcParams.update({
     'grid.linestyle': '--',
     'figure.autolayout': True
 })
-
-# Configuração da autenticação do Kaggle
-try:
-    os.environ["KAGGLE_API_TOKEN"] = st.secrets["KAGGLE_API_TOKEN"]
-except Exception:
-    st.sidebar.warning("⚠️ Token do Kaggle não configurado. O download pode falhar sem autenticação prévia.")
-
-ALFA = 0.05
-MIN_MENCOES = 3
-FAIXAS = ["Baixo", "Médio", "Alto"]
 
 # --- Funções de Apoio e Processamento ---
 
