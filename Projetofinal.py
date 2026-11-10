@@ -64,6 +64,16 @@ plt.rcParams.update({
     'figure.autolayout': True
 })
 
+# Configuração da autenticação do Kaggle
+try:
+    os.environ["KAGGLE_API_TOKEN"] = st.secrets["KAGGLE_API_TOKEN"]
+except Exception:
+    st.sidebar.warning("Token do Kaggle não configurado. O download pode falhar sem autenticação prévia.")
+
+ALFA = 0.05
+MIN_MENCOES = 3
+FAIXAS = ["Baixo", "Médio", "Alto"]
+
 # --- Funções de Apoio e Processamento ---
 
 @st.cache_data
@@ -181,6 +191,10 @@ def contar_mencoes(df_filmes, df_resenhas):
                 "rev_mencoes": n,
                 "rev_pct_positivo": positivo[achou].mean(),
             })
+
+    if not linhas:
+        return pd.DataFrame(columns=["movie_title", "title_year", "rev_mencoes", "rev_pct_positivo"])
+
     return pd.DataFrame(linhas, columns=["movie_title", "title_year", "rev_mencoes", "rev_pct_positivo"])
 
 def veredito(rho, p):
@@ -264,9 +278,25 @@ with st.spinner("Carregando e integrando bases de dados..."):
     df_rev = limpar_reviews(df_rev_raw)
 
     df_mencoes = contar_mencoes(df_final, df_rev)
-    df_final_rev = df_final.merge(df_mencoes, on=["movie_title", "title_year"], how="left")
-    df_final_rev["rev_mencoes"] = df_final_rev["rev_mencoes"].fillna(0).astype(int)
-    df_final_rev.loc[df_final_rev["rev_mencoes"] < MIN_MENCOES, "rev_pct_positivo"] = np.nan
+
+    # Limpeza defensiva de colunas para prevenir KeyError no merge
+    for c in ["rev_mencoes", "rev_pct_positivo"]:
+        if c in df_final.columns:
+            df_final = df_final.drop(columns=[c])
+
+    if not df_mencoes.empty and "rev_mencoes" in df_mencoes.columns:
+        df_final_rev = df_final.merge(df_mencoes, on=["movie_title", "title_year"], how="left")
+    else:
+        df_final_rev = df_final.copy()
+        df_final_rev["rev_mencoes"] = 0
+        df_final_rev["rev_pct_positivo"] = np.nan
+
+    if "rev_mencoes" in df_final_rev.columns:
+        df_final_rev["rev_mencoes"] = df_final_rev["rev_mencoes"].fillna(0).astype(int)
+        df_final_rev.loc[df_final_rev["rev_mencoes"] < MIN_MENCOES, "rev_pct_positivo"] = np.nan
+    else:
+        df_final_rev["rev_mencoes"] = 0
+        df_final_rev["rev_pct_positivo"] = np.nan
 
 # --- EXPANDER: EXPLORAÇÃO DAS BASES DE DADOS ---
 with st.expander("Explorar as Bases de Dados (Visão Geral e Dicionário)", expanded=False):
@@ -276,15 +306,15 @@ with st.expander("Explorar as Bases de Dados (Visão Geral e Dicionário)", expa
         st.markdown("### Base Limpa de Filmes (IMDb)")
         c1, c2 = st.columns([1, 1.2], gap="medium")
         with c1:
-            st.markdown("""
+            st.markdown(f"""
             **Resumo do Processamento:**
-            - Dataset reduzido de **{}** para **{}** filmes únicos após limpeza.
+            - Dataset reduzido de **{df_imdb_raw.shape[0]}** para **{df_limpo.shape[0]}** filmes únicos após limpeza.
             - Principais variáveis analisadas: `movie_facebook_likes`, `gross`, `imdb_score`.
             - **Decisões de limpeza principais:**
               - 45 registros duplicados removidos.
               - Zeros em curtidas de diretor/filme tratados como *ausentes* (páginas inexistentes na época).
               - Filtro de orçamento restrito a produções dos EUA para padronização em USD.
-            """.format(df_imdb_raw.shape[0], df_limpo.shape[0]))
+            """)
         with c2:
             cols = ["movie_facebook_likes", "gross", "imdb_score"]
             fig1, ax1 = plt.subplots(figsize=(6, 3.5))
@@ -333,7 +363,10 @@ with st.expander("Explorar as Bases de Dados (Visão Geral e Dicionário)", expa
             - Serve como validação metodológica: a % de resenhas positivas reflete a nota média no IMDb?
             """)
             st.markdown("**Filmes Mais Citados (Top 5):**")
-            st.dataframe(df_mencoes.sort_values("rev_mencoes", ascending=False).head(5), use_container_width=True)
+            if not df_mencoes.empty and "rev_mencoes" in df_mencoes.columns:
+                st.dataframe(df_mencoes.sort_values("rev_mencoes", ascending=False).head(5), use_container_width=True)
+            else:
+                st.write("Nenhum filme citado encontrado.")
         with c_r2:
             fig3, ax3 = plt.subplots(figsize=(6, 3.5))
             sns.regplot(data=df_rev_ok, x="rev_pct_positivo", y="imdb_score",
@@ -345,7 +378,7 @@ with st.expander("Explorar as Bases de Dados (Visão Geral e Dicionário)", expa
             mostrar(fig3)
 
 # --- PLANO DE HIPÓTESES ---
-st.markdown("##Hipóteses de Pesquisa")
+st.markdown("## Hipóteses de Pesquisa")
 st.markdown("A pergunta central orientadora é: ***O engajamento nas redes sociais pode prever o sucesso comercial ou de crítica de um filme?***")
 
 HIPOTESES = [
@@ -366,7 +399,7 @@ st.dataframe(df_hip_table, use_container_width=True, hide_index=True)
 st.markdown("---")
 
 # --- VISUALIZAÇÕES PRINCIPAIS DAS HIPÓTESES ---
-st.markdown("##Análise Visual das Hipóteses")
+st.markdown("## Análise Visual das Hipóteses")
 st.markdown("Comparativo visual entre as métricas de engajamento social, faturamento e recepção do público.")
 
 # 1. Curtidas vs Bilheteria
@@ -488,7 +521,7 @@ with st.container():
 st.markdown("---")
 
 # --- TESTE DE HIPÓTESES E CONCLUSÃO ---
-st.markdown("##Resultados dos Testes Estatísticos e Conclusão")
+st.markdown("## Resultados dos Testes Estatísticos e Conclusão")
 
 df_res = testar_hipoteses(df_final_rev, HIPOTESES)
 
@@ -503,7 +536,7 @@ with col_tabelas:
     st.dataframe(tabela, use_container_width=True, hide_index=True)
     
     st.download_button(
-        label="Baixar Resultados Completo (CSV)",
+        label="Baixar Resultados Completos (CSV)",
         data=df_res.to_csv(index=False).encode("utf-8"),
         file_name="resultados_hipoteses.csv",
         mime="text/csv"
@@ -547,7 +580,7 @@ with st.expander("Testes Estatísticos Complementares (Kruskal-Wallis e Correla�
         st.dataframe(medianas.round(0).rename("Mediana Bilheteria (USD)"), use_container_width=True)
     with c_kw2:
         st.info(f"**Estatística H:** {h:.2f}\n\n**p-valor:** {p_kw:.3g}\n\n" +
-                ("Há diferença estatisticamente significativa na bilheteria entre as faixas de engajamento." if p_kw < ALFA else "❌ Não há diferença significativa."))
+                ("Há diferença estatisticamente significativa na bilheteria entre as faixas de engajamento." if p_kw < ALFA else "Não há diferença significativa."))
 
     st.markdown("---")
     st.markdown("#### 2. Correlação Parcial Controlando o Orçamento")
