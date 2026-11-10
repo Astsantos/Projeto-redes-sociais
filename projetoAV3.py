@@ -133,7 +133,7 @@ def contar_mencoes(df_filmes, df_resenhas):
 # INÍCIO DA INTERFACE
 # =====================================================================
 
-st.title("🎬 O engajamento nas redes sociais indica o sucesso de um filme?")
+st.title("O engajamento nas redes sociais indica o sucesso de um filme?")
 st.markdown("Uma análise cruzando dados de Bilheteria (IMDb), Trailers (YouTube) e Resenhas de Usuários.")
 st.markdown("---")
 
@@ -163,7 +163,7 @@ with st.spinner("Processando bases de dados..."):
     df_final_rev.loc[df_final_rev["rev_mencoes"] < MIN_MENCOES, "rev_pct_positivo"] = np.nan
 
 # --- Explorando as Bases (Usando Expander para limpar a tela) ---
-with st.expander("🔍 Explorar as Bases de Dados (Visão Geral)"):
+with st.expander("Explorar as Bases de Dados (Visão Geral)"):
     tab1, tab2, tab3 = st.tabs(["1. IMDb 5000", "2. YouTube", "3. Resenhas (50K)"])
     
     with tab1:
@@ -194,7 +194,7 @@ with st.expander("🔍 Explorar as Bases de Dados (Visão Geral)"):
         st.pyplot(fig3)
 
 # --- VISUALIZAÇÕES PRINCIPAIS (TEXTO NA ESQUERDA, GRÁFICO NA DIREITA) ---
-st.header("📊 Análise Visual das Hipóteses")
+st.header("Análise Visual das Hipóteses")
 st.markdown("Como as diferentes métricas de engajamento se comportam em relação ao faturamento e à nota dos filmes?")
 st.write("")
 
@@ -299,7 +299,7 @@ with col_fig3:
     st.pyplot(fig6)
 
 # --- RESULTADOS DOS TESTES E CONCLUSÃO ---
-st.header("🎯 Conclusão e Teste de Hipóteses")
+st.header("Conclusão e Teste de Hipóteses")
 
 HIPOTESES = [
     ("H1", "Curtidas do filme -> Bilheteria", "movie_facebook_likes", "gross_imdb"),
