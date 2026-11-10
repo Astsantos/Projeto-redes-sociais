@@ -534,13 +534,6 @@ with col_tabelas:
     tabela["p-valor"] = tabela["p-valor"].map(lambda p: f"{p:.3g}")
     
     st.dataframe(tabela, use_container_width=True, hide_index=True)
-    
-    st.download_button(
-        label="Baixar Resultados Completos (CSV)",
-        data=df_res.to_csv(index=False).encode("utf-8"),
-        file_name="resultados_hipoteses.csv",
-        mime="text/csv"
-    )
 
 with col_grafico:
     st.markdown("#### Ranking de Força das Hipóteses (ρ)")
