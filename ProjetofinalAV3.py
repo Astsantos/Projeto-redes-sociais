@@ -273,7 +273,7 @@ def correlacao_parcial_spearman(df, x, y, z):
 # =====================================================================
 
 # Cabeçalho Principal
-st.title("O Engajamento nas Redes Sociais Indica o Sucesso de um Filme?")
+st.title("O Engajamento nas Redes Sociais Pode Indicar o Sucesso de um Filme?")
 st.markdown("Uma análise estatística cruzando dados de **Bilheteria (IMDb)**, **Trailers (YouTube)** e **Resenhas de Usuários**.")
 st.markdown("---")
 
