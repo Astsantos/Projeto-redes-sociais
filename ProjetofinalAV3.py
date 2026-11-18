@@ -86,7 +86,7 @@ def baixar_dataset(handle):
 
 def mostrar(fig):
     """Mostra a figura no app e libera a memória."""
-    st.pyplot(fig, use_container_width=True)
+    st.pyplot(fig, width="stretch")
     plt.close(fig)
 
 def descrever_base(df):
@@ -97,6 +97,12 @@ def descrever_base(df):
         "Valores Ausentes (%)": (df.isna().mean() * 100).round(1),
     })
     return res.sort_values(by="Valores Ausentes (%)", ascending=False)
+
+def descrever_rho(r):
+    """Texto curto com a força e o valor de rho (r = resultado de correlacao_spearman)."""
+    if not np.isfinite(r["rho"]):
+        return "sem dados suficientes"
+    return f"{classificar_forca(r['rho'])} (ρ = {r['rho']:.2f})"
 
 def classificar_forca(rho):
     a = abs(rho)
@@ -123,7 +129,20 @@ def limpar_dados_imdb(df):
         "num_user_for_reviews", "num_critic_for_reviews",
         "imdb_score", "gross", "budget",
     ]
-    df = df[colunas].drop_duplicates()
+    df = df[colunas].copy()
+
+    # Garante os tipos numéricos das variáveis usadas nas análises
+    colunas_numericas = [
+        "title_year", "director_facebook_likes", "actor_1_facebook_likes",
+        "actor_2_facebook_likes", "actor_3_facebook_likes",
+        "cast_total_facebook_likes", "movie_facebook_likes",
+        "num_user_for_reviews", "num_critic_for_reviews",
+        "imdb_score", "gross", "budget",
+    ]
+    for col in colunas_numericas:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.drop_duplicates()
     df["movie_title"] = df["movie_title"].str.replace("\xa0", "").str.strip()
     essenciais = ["gross", "imdb_score", "director_facebook_likes",
                   "actor_1_facebook_likes", "title_year",
@@ -140,6 +159,7 @@ def limpar_dados_imdb(df):
 def limpar_youtube(df):
     df = df.copy().drop_duplicates()
     df["year"] = pd.to_numeric(df["year"], errors="coerce")
+    df["favorability"] = pd.to_numeric(df["favorability"], errors="coerce")
     df = df.dropna(subset=["name", "year"])
     df["year"] = df["year"].astype(int)
     df["name"] = df["name"].astype(str).str.strip()
@@ -198,7 +218,7 @@ def contar_mencoes(df_filmes, df_resenhas):
     return pd.DataFrame(linhas, columns=["movie_title", "title_year", "rev_mencoes", "rev_pct_positivo"])
 
 def veredito(rho, p):
-    if np.isnan(rho): return "Sem dados suficientes"
+    if not np.isfinite(rho) or not np.isfinite(p): return "Sem dados suficientes"
     if p >= ALFA: return "Não apoiada (relação não significativa)"
     if rho <= 0: return "Não apoiada (relação negativa)"
     if abs(rho) < 0.10: return "Apoiada, mas com efeito desprezível"
@@ -239,6 +259,11 @@ def correlacao_parcial_spearman(df, x, y, z):
         return a - np.polyval(np.polyfit(b, a, 1), b)
 
     parcial = np.corrcoef(residuo(r[x], r[z]), residuo(r[y], r[z]))[0, 1]
+    if not np.isfinite(parcial):
+        return {"n": n, "simples": stats.spearmanr(d[x], d[y])[0],
+                "parcial": np.nan, "p": np.nan}
+    # Evita divisão por zero quando a correlação parcial é exatamente +/-1
+    parcial = np.clip(parcial, -0.999999, 0.999999)
     t = parcial * np.sqrt((n - 3) / (1 - parcial ** 2))
     p = 2 * stats.t.sf(abs(t), n - 3)
     return {"n": n, "simples": stats.spearmanr(d[x], d[y])[0], "parcial": parcial, "p": p}
@@ -323,11 +348,16 @@ with st.expander("Explorar as Bases de Dados (Visão Geral e Dicionário)", expa
             mostrar(fig1)
 
         st.markdown("#### Estatísticas Descritivas e Dicionário")
-        sub_t1, sub_t2 = st.tabs(["Estatísticas Descritivas", "Dicionário de Colunas"])
+        sub_t1, sub_t2, sub_t3 = st.tabs(["Estatísticas Descritivas", "Dicionário de Colunas", "Amostra dos Dados Limpos"])
         with sub_t1:
-            st.dataframe(df_limpo.describe().T.style.format("{:.2f}"), use_container_width=True)
+            st.dataframe(df_limpo.describe().T.style.format("{:.2f}"), width="stretch")
         with sub_t2:
-            st.dataframe(descrever_base(df_imdb_raw), use_container_width=True)
+            st.dataframe(descrever_base(df_imdb_raw), width="stretch")
+        with sub_t3:
+            st.dataframe(
+                df_limpo[["movie_title", "title_year", "country", "movie_facebook_likes", "gross", "imdb_score"]].head(10),
+                width="stretch", hide_index=True
+            )
 
     with tab2:
         st.markdown("### Integração IMDb + YouTube")
@@ -338,17 +368,26 @@ with st.expander("Explorar as Bases de Dados (Visão Geral e Dicionário)", expa
         m4.metric("Não Casados", f"{len(df_nao):,}")
 
         st.markdown("---")
-        c_yt1, c_yt2 = st.columns([1, 1], gap="medium")
-        with c_yt1:
-            st.markdown("#### Amostra da Base Integrada")
+        st.caption("A ligação entre as bases é feita pelo título (em minúsculas) + ano, porque existem filmes com o mesmo nome em anos diferentes.")
+        yt_t1, yt_t2, yt_t3, yt_t4 = st.tabs([
+            "Amostra da Base Integrada", "Estatísticas Descritivas (IMDb + YouTube)",
+            "Filmes que Não Casaram", "Dicionário do YouTube"
+        ])
+        with yt_t1:
             st.dataframe(
-                df_final[["movie_title", "title_year", "movie_facebook_likes", "gross_imdb", "imdb_score", "favorability"]].head(8),
-                use_container_width=True
+                df_final[["movie_title", "title_year", "movie_facebook_likes", "gross_imdb", "imdb_score", "favorability"]].head(10),
+                width="stretch", hide_index=True
             )
-        with c_yt2:
-            st.markdown("#### Estatísticas Descritivas (IMDb + YouTube)")
-            cols_final = ["movie_facebook_likes", "gross_imdb", "imdb_score", "favorability", "votes"]
-            st.dataframe(df_final[cols_final].describe().T.style.format("{:.2f}"), use_container_width=True)
+        with yt_t2:
+            cols_final = ["movie_facebook_likes", "director_facebook_likes", "cast_total_facebook_likes",
+                          "gross_imdb", "imdb_score", "favorability", "votes", "runtime"]
+            cols_final = [c for c in cols_final if c in df_final.columns]
+            st.dataframe(df_final[cols_final].describe().T.style.format("{:.2f}"), width="stretch")
+        with yt_t3:
+            st.caption(f"{len(df_nao):,} filmes do YouTube não casaram com o IMDb; desses, {n_outro_ano:,} existem no IMDb com outro ano.")
+            st.dataframe(df_nao[["name", "year"]].head(15), width="stretch", hide_index=True)
+        with yt_t4:
+            st.dataframe(descrever_base(df_yt_raw), width="stretch")
 
     with tab3:
         st.markdown("### Análise de Sentimento das Resenhas (50K)")
@@ -364,7 +403,7 @@ with st.expander("Explorar as Bases de Dados (Visão Geral e Dicionário)", expa
             """)
             st.markdown("**Filmes Mais Citados (Top 5):**")
             if not df_mencoes.empty and "rev_mencoes" in df_mencoes.columns:
-                st.dataframe(df_mencoes.sort_values("rev_mencoes", ascending=False).head(5), use_container_width=True)
+                st.dataframe(df_mencoes.sort_values("rev_mencoes", ascending=False).head(5), width="stretch")
             else:
                 st.write("Nenhum filme citado encontrado.")
         with c_r2:
@@ -376,6 +415,16 @@ with st.expander("Explorar as Bases de Dados (Visão Geral e Dicionário)", expa
             ax3.set_ylabel("Nota IMDb")
             sns.despine()
             mostrar(fig3)
+
+        rv_t1, rv_t2 = st.tabs(["Amostra das Resenhas", f"Filmes com Pelo Menos {MIN_MENCOES} Resenhas"])
+        with rv_t1:
+            st.caption(f"{len(df_rev_raw):,} resenhas originais; {len(df_rev):,} depois de remover duplicadas, tags HTML e espaços extras.")
+            st.dataframe(df_rev[["review", "sentiment", "positivo", "n_palavras"]].head(), width="stretch", hide_index=True)
+        with rv_t2:
+            st.dataframe(
+                df_rev_ok[["movie_title", "title_year", "rev_mencoes", "rev_pct_positivo", "imdb_score", "favorability"]].head(10),
+                width="stretch", hide_index=True
+            )
 
 # --- PLANO DE HIPÓTESES ---
 st.markdown("## Hipóteses de Pesquisa")
@@ -394,7 +443,16 @@ df_hip_table = pd.DataFrame([
     {"Código": h[0], "Descrição da Hipótese": h[1], "Variável X (Engajamento)": h[2], "Variável Y (Sucesso)": h[3], "Categoria": h[4]}
     for h in HIPOTESES
 ])
-st.dataframe(df_hip_table, use_container_width=True, hide_index=True)
+st.dataframe(df_hip_table, width="stretch", hide_index=True)
+
+st.markdown("""
+**Plano de análise**
+1. Visualizar as relações nos gráficos abaixo: dispersão, faixas de engajamento e sentimento do trailer.
+2. Testar cada hipótese com a correlação de **Spearman** e o p-valor. Escolhemos Spearman porque curtidas e bilheteria são muito assimétricas, com poucos filmes concentrando valores enormes.
+3. Considerar uma hipótese **apoiada pelos dados** quando a correlação é positiva e o p-valor é menor que 0,05. Informamos também a força da relação, porque com muitos filmes até uma relação minúscula pode ser significativa.
+4. Comparar a bilheteria entre faixas de engajamento (baixo, médio, alto) com o teste de Kruskal-Wallis.
+5. Checar se o **orçamento** explica a relação, com a correlação parcial controlando o orçamento.
+""")
 
 st.markdown("---")
 
@@ -404,17 +462,18 @@ st.markdown("Comparativo visual entre as métricas de engajamento social, fatura
 
 # 1. Curtidas vs Bilheteria
 with st.container():
+    r_h1 = correlacao_spearman(df_final, "movie_facebook_likes", "gross_imdb")
     col_txt1, col_fig1 = st.columns([1, 1.2], gap="large")
     with col_txt1:
         st.markdown("### 1. Curtidas na Página vs. Bilheteria")
-        st.markdown("""
+        st.markdown(f"""
         <div class="highlight-box">
         <strong>Como interpretar:</strong><br>
         Cada ponto representa um filme em escala logarítmica (Log10) para normalizar valores extremos entre produções indies e blockbusters.
         </div>
 
         - **Tendência:** Existe uma inclinação ascendente nítida — filmes com mais curtidas no Facebook tendem a faturar mais.
-        - **Intensidade:** A correlação de Spearman na base final é de <code>0.36</code> (moderada).
+        - **Intensidade:** A correlação de Spearman na base final é <code>{descrever_rho(r_h1)}</code>.
         - **Conclusão:** O engajamento da página é um indicativo positivo, mas não garante sucesso absoluto de bilheteria isoladamente.
         """, unsafe_allow_html=True)
     with col_fig1:
@@ -440,17 +499,20 @@ with st.container():
     d_faixa = df_final.dropna(subset=["movie_facebook_likes", "gross_imdb"]).copy()
     d_faixa["Engajamento"] = pd.qcut(d_faixa["movie_facebook_likes"], q=3, labels=FAIXAS)
     medianas_faixa = d_faixa.groupby("Engajamento", observed=True)["gross_imdb"].median()
+    txt_prog = ("cresce de forma contínua da faixa Baixa para a Alta."
+                if medianas_faixa.is_monotonic_increasing
+                else "não cresce de forma contínua entre as faixas (veja as medianas na tabela abaixo).")
 
     col_txt2, col_fig2 = st.columns([1, 1.2], gap="large")
     with col_txt2:
         st.markdown("### 2. Bilheteria por Faixa de Engajamento")
-        st.markdown("""
+        st.markdown(f"""
         <div class="highlight-box">
         <strong>Como interpretar:</strong><br>
         Os filmes foram divididos em 3 terços iguais (Baixo, Médio e Alto Engajamento). A linha central do boxplot é a mediana e a marca vermelha representa a média.
         </div>
 
-        - **Progressão:** A mediana de bilheteria cresce de forma contínua da faixa Baixa para a Alta.
+        - **Progressão:** A mediana de bilheteria {txt_prog}
         - **Variação:** Note a presença de *outliers* (filmes com poucas curtidas mas bilheteria expressiva), reforçando a necessidade de análises não-paramétricas.
         """, unsafe_allow_html=True)
         
@@ -459,7 +521,7 @@ with st.container():
             "Faixa de Engajamento": medianas_faixa.index,
             "Mediana Bilheteria (USD)": [f"$ {v:,.0f}" for v in medianas_faixa.values]
         })
-        st.dataframe(df_med_show, use_container_width=True, hide_index=True)
+        st.dataframe(df_med_show, width="stretch", hide_index=True)
 
     with col_fig2:
         fig5, ax5 = plt.subplots(figsize=(7, 4))
@@ -477,9 +539,8 @@ st.markdown("---")
 
 # 3. Sentimento dos Comentários do YouTube
 with st.container():
-    r_h5 = correlacao_spearman(df_final, "favorability", "gross_imdb")
-    txt_h5 = ("sem dados suficientes" if np.isnan(r_h5["rho"])
-              else f"correlação {classificar_forca(r_h5['rho'])} (ρ = {r_h5['rho']:.2f})")
+    txt_h4 = descrever_rho(correlacao_spearman(df_final, "favorability", "imdb_score"))
+    txt_h5 = descrever_rho(correlacao_spearman(df_final, "favorability", "gross_imdb"))
 
     col_txt3, col_fig3 = st.columns([1, 1.2], gap="large")
     with col_txt3:
@@ -490,8 +551,8 @@ with st.container():
         A Taxa de Favorabilidade mede o percentual de comentários positivos nos trailers oficiais no YouTube.
         </div>
 
-        - **vs. Bilheteria:** Relação praticamente inexistente ({txt_h5}). O otimismo nos comentários não se traduz em vendas de ingressos.
-        - **vs. Nota IMDb:** Relação positiva moderada. O sentimento do trailer indica melhor a receptividade de crítica do público do que a arrecadação financeira.
+        - **vs. Bilheteria:** Relação {txt_h5}. O otimismo nos comentários pouco se traduz em vendas de ingressos.
+        - **vs. Nota IMDb:** Relação {txt_h4}. O sentimento do trailer indica melhor a receptividade de crítica do público do que a arrecadação financeira.
         """, unsafe_allow_html=True)
 
     with col_fig3:
@@ -533,7 +594,7 @@ with col_tabelas:
     tabela["rho"] = tabela["rho"].round(2)
     tabela["p-valor"] = tabela["p-valor"].map(lambda p: f"{p:.3g}")
     
-    st.dataframe(tabela, use_container_width=True, hide_index=True)
+    st.dataframe(tabela, width="stretch", hide_index=True)
 
 with col_grafico:
     st.markdown("#### Ranking de Força das Hipóteses (ρ)")
@@ -557,11 +618,42 @@ with col_grafico:
 st.markdown("---")
 
 # Caixa de síntese final
-st.success("""
+# Os números do veredito vêm da tabela de resultados (não ficam escritos à mão)
+res = {l["Hipótese"]: l for _, l in df_res.iterrows()}
+
+def _rho(cod):
+    return {"rho": res[cod]["rho"]} if cod in res else {"rho": np.nan}
+
+def _apoiada(cod):
+    return cod in res and str(res[cod]["Veredito"]).startswith("Apoiada")
+
+if _apoiada("H1") and _apoiada("H2"):
+    linha_curtidas = (f"Página do filme: correlação {descrever_rho(_rho('H1'))}; elenco: {descrever_rho(_rho('H2'))}. "
+                      "Ambas são positivas e significativas: filmes com maior engajamento prévio no Facebook tendem a faturar mais.")
+else:
+    linha_curtidas = "Os testes não sustentam uma relação positiva significativa para todas as medidas de curtidas (veja a tabela acima)."
+
+linha_sent = (f"Correlação {descrever_rho(_rho('H5'))} com a bilheteria e {descrever_rho(_rho('H4'))} com a nota do IMDb")
+if np.isfinite(_rho("H4")["rho"]) and np.isfinite(_rho("H5")["rho"]) and abs(_rho("H4")["rho"]) > abs(_rho("H5")["rho"]):
+    linha_sent += ": o sentimento do trailer se relaciona mais com a nota do público do que com o faturamento."
+else:
+    linha_sent += "."
+
+r_parc = correlacao_parcial_spearman(df_final, "movie_facebook_likes", "gross_imdb", "budget_imdb")
+if np.isfinite(r_parc["parcial"]):
+    linha_orc = (f"Ao controlar o orçamento, a correlação entre curtidas do filme e bilheteria vai de {r_parc['simples']:.2f} para {r_parc['parcial']:.2f}. ")
+    if r_parc["parcial"] < r_parc["simples"] - 0.02:
+        linha_orc += "Parte da relação é explicada pelo orçamento, que aumenta curtidas e bilheteria ao mesmo tempo."
+    else:
+        linha_orc += "A relação se mantém mesmo controlando o orçamento."
+else:
+    linha_orc = "Há poucos filmes com orçamento para controlar esse efeito."
+
+st.success(f"""
 **Veredito Sintético:**
-- **Curtidas nas Redes (Página / Elenco):** Apresentam correlação moderada e positiva com a bilheteria. Filmes com maior engajamento prévio no Facebook tendem a faturar mais.
-- **Sentimento nos Comentários (YouTube):** Não serve como indicador financeiro de bilheteria, mas se correlaciona positivamente com a nota final do público/crítica.
-- **Efeito Orçamento:** Parte expressiva da relação entre curtidas e bilheteria é mediada pelo orçamento de marketing das produções.
+- **Curtidas nas Redes (Página / Elenco):** {linha_curtidas}
+- **Sentimento nos Comentários (YouTube):** {linha_sent}
+- **Efeito Orçamento:** {linha_orc}
 """)
 
 # --- TESTES COMPLEMENTARES ---
@@ -570,7 +662,7 @@ with st.expander("Testes Estatísticos Complementares (Kruskal-Wallis e Correla�
     medianas, h, p_kw = teste_faixas(df_final)
     c_kw1, c_kw2 = st.columns([1, 1])
     with c_kw1:
-        st.dataframe(medianas.round(0).rename("Mediana Bilheteria (USD)"), use_container_width=True)
+        st.dataframe(medianas.round(0).rename("Mediana Bilheteria (USD)"), width="stretch")
     with c_kw2:
         st.info(f"**Estatística H:** {h:.2f}\n\n**p-valor:** {p_kw:.3g}\n\n" +
                 ("Há diferença estatisticamente significativa na bilheteria entre as faixas de engajamento." if p_kw < ALFA else "Não há diferença significativa."))
@@ -591,6 +683,22 @@ with st.expander("Testes Estatísticos Complementares (Kruskal-Wallis e Correla�
                 "p-valor": f"{r['p']:.3g}"
             })
     if linhas_parcial:
-        st.dataframe(pd.DataFrame(linhas_parcial), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(linhas_parcial), width="stretch", hide_index=True)
     else:
         st.write("Dados insuficientes de orçamento para o cálculo.")
+
+# --- LIMITAÇÕES ---
+with st.expander("Limitações e Próximos Passos"):
+    st.markdown("""
+**Limitações**
+- **Viés de seleção:** a base final só inclui filmes com trailer comentado no YouTube e é mais popular que a média do IMDb 5000 (mediana de curtidas do filme de 17.000, contra 5.000).
+- **Período:** os filmes se concentram entre 2006 e 2012, e as curtidas do Facebook foram medidas em um momento só.
+- **Dados ausentes:** a página do filme no Facebook só existe para cerca de metade dos filmes, e o orçamento só foi mantido para filmes dos EUA.
+- **Resenhas:** a base não diz de qual filme cada resenha fala; a ligação é feita pelo título dentro do texto, o que gera erros (a resenha pode comparar com outro filme ou falar de uma sequência).
+- **Causalidade:** correlação não prova causa.
+
+**Próximos passos**
+- Incluir redes sociais atuais (Instagram, TikTok, X), já que o Facebook perdeu espaço.
+- Aplicar um modelo de análise de sentimento sobre o texto dos comentários e das resenhas.
+- Testar um modelo de previsão (por exemplo, regressão) combinando orçamento, elenco e engajamento.
+""")
